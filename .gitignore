@@ -1,5 +1,6 @@
 /node_modules/
 /build/
+/.deps/
 
 node_modules
 
@@ -8,3 +9,10 @@ cache
 artifacts
 coverage
 coverage.json
+
+yarn.lock
+package-lock.json
+*.log
+*.lock
+secret.json
+settings.json

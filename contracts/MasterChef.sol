@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.6.12;
 
 import '@pancakeswap/pancake-swap-lib/contracts/math/SafeMath.sol';
@@ -5,28 +6,26 @@ import '@pancakeswap/pancake-swap-lib/contracts/token/BEP20/IBEP20.sol';
 import '@pancakeswap/pancake-swap-lib/contracts/token/BEP20/SafeBEP20.sol';
 import '@pancakeswap/pancake-swap-lib/contracts/access/Ownable.sol';
 
-import "./CakeToken.sol";
+import "./KacoToken.sol";
 import "./SyrupBar.sol";
 
 // import "@nomiclabs/buidler/console.sol";
 
 interface IMigratorChef {
-    // Perform LP token migration from legacy PancakeSwap to CakeSwap.
     // Take the current LP token address and return the new LP token address.
     // Migrator should have full access to the caller's LP token.
     // Return the new LP token address.
     //
-    // XXX Migrator must have allowance access to PancakeSwap LP tokens.
-    // CakeSwap must mint EXACTLY the same amount of CakeSwap LP tokens or
-    // else something bad will happen. Traditional PancakeSwap does not
-    // do that so be careful!
+    // XXX Migrator must have allowance access to Old LP tokens.
+    // new LP must mint EXACTLY the same amount of LP tokens or
+    // else something bad will happen.
     function migrate(IBEP20 token) external returns (IBEP20);
 }
 
-// MasterChef is the master of Cake. He can make Cake and he is a fair guy.
+// MasterChef is the master of Kaco. He can make Kaco and he is a fair guy.
 //
 // Note that it's ownable and the owner wields tremendous power. The ownership
-// will be transferred to a governance smart contract once CAKE is sufficiently
+// will be transferred to a governance smart contract once Kaco is sufficiently
 // distributed and the community can show to govern itself.
 //
 // Have fun reading it. Hopefully it's bug-free. God bless.
@@ -39,7 +38,7 @@ contract MasterChef is Ownable {
         uint256 amount;     // How many LP tokens the user has provided.
         uint256 rewardDebt; // Reward debt. See explanation below.
         //
-        // We do some fancy math here. Basically, any point in time, the amount of CAKEs
+        // We do some fancy math here. Basically, any point in time, the amount of Kacos
         // entitled to a user but is pending to be distributed is:
         //
         //   pending reward = (user.amount * pool.accCakePerShare) - user.rewardDebt
@@ -54,20 +53,18 @@ contract MasterChef is Ownable {
     // Info of each pool.
     struct PoolInfo {
         IBEP20 lpToken;           // Address of LP token contract.
-        uint256 allocPoint;       // How many allocation points assigned to this pool. CAKEs to distribute per block.
-        uint256 lastRewardBlock;  // Last block number that CAKEs distribution occurs.
-        uint256 accCakePerShare; // Accumulated CAKEs per share, times 1e12. See below.
+        uint256 allocPoint;       // How many allocation points assigned to this pool. Kacos to distribute per block.
+        uint256 lastRewardBlock;  // Last block number that Kacos distribution occurs.
+        uint256 accCakePerShare; // Accumulated Kacos per share, times 1e12. See below.
     }
 
-    // The CAKE TOKEN!
-    CakeToken public cake;
+    // The Kaco TOKEN!
+    KacoToken public Kaco;
     // The SYRUP TOKEN!
     SyrupBar public syrup;
-    // Dev address.
-    address public devaddr;
-    // CAKE tokens created per block.
+    // Kaco tokens created per block.
     uint256 public cakePerBlock;
-    // Bonus muliplier for early cake makers.
+    // Bonus muliplier for early Kaco makers.
     uint256 public BONUS_MULTIPLIER = 1;
     // The migrator contract. It has a lot of power. Can only be set through governance (owner).
     IMigratorChef public migrator;
@@ -78,7 +75,7 @@ contract MasterChef is Ownable {
     mapping (uint256 => mapping (address => UserInfo)) public userInfo;
     // Total allocation points. Must be the sum of all allocation points in all pools.
     uint256 public totalAllocPoint = 0;
-    // The block number when CAKE mining starts.
+    // The block number when Kaco mining starts.
     uint256 public startBlock;
 
     event Deposit(address indexed user, uint256 indexed pid, uint256 amount);
@@ -86,28 +83,34 @@ contract MasterChef is Ownable {
     event EmergencyWithdraw(address indexed user, uint256 indexed pid, uint256 amount);
 
     constructor(
-        CakeToken _cake,
+        KacoToken _Kaco,
         SyrupBar _syrup,
-        address _devaddr,
         uint256 _cakePerBlock,
         uint256 _startBlock
     ) public {
-        cake = _cake;
+        Kaco = _Kaco;
         syrup = _syrup;
-        devaddr = _devaddr;
         cakePerBlock = _cakePerBlock;
         startBlock = _startBlock;
 
         // staking pool
         poolInfo.push(PoolInfo({
-            lpToken: _cake,
-            allocPoint: 1000,
+            lpToken: _Kaco,
+            allocPoint: 0,
             lastRewardBlock: startBlock,
             accCakePerShare: 0
         }));
 
-        totalAllocPoint = 1000;
+        totalAllocPoint = 0;
 
+    }
+
+    function updateKacPerBlock(uint256 _kacPerBlock, bool _withUpdate) public onlyOwner {
+        require(cakePerBlock != _kacPerBlock, "kac: kacPerBlock not changed");
+        if (_withUpdate) {
+            massUpdatePools();
+        }
+        cakePerBlock = _kacPerBlock;
     }
 
     function updateMultiplier(uint256 multiplierNumber) public onlyOwner {
@@ -132,10 +135,9 @@ contract MasterChef is Ownable {
             lastRewardBlock: lastRewardBlock,
             accCakePerShare: 0
         }));
-        updateStakingPool();
     }
 
-    // Update the given pool's CAKE allocation point. Can only be called by the owner.
+    // Update the given pool's Kaco allocation point. Can only be called by the owner.
     function set(uint256 _pid, uint256 _allocPoint, bool _withUpdate) public onlyOwner {
         if (_withUpdate) {
             massUpdatePools();
@@ -144,20 +146,6 @@ contract MasterChef is Ownable {
         poolInfo[_pid].allocPoint = _allocPoint;
         if (prevAllocPoint != _allocPoint) {
             totalAllocPoint = totalAllocPoint.sub(prevAllocPoint).add(_allocPoint);
-            updateStakingPool();
-        }
-    }
-
-    function updateStakingPool() internal {
-        uint256 length = poolInfo.length;
-        uint256 points = 0;
-        for (uint256 pid = 1; pid < length; ++pid) {
-            points = points.add(poolInfo[pid].allocPoint);
-        }
-        if (points != 0) {
-            points = points.div(3);
-            totalAllocPoint = totalAllocPoint.sub(poolInfo[0].allocPoint).add(points);
-            poolInfo[0].allocPoint = points;
         }
     }
 
@@ -183,7 +171,7 @@ contract MasterChef is Ownable {
         return _to.sub(_from).mul(BONUS_MULTIPLIER);
     }
 
-    // View function to see pending CAKEs on frontend.
+    // View function to see pending Kacos on frontend.
     function pendingCake(uint256 _pid, address _user) external view returns (uint256) {
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][_user];
@@ -219,16 +207,15 @@ contract MasterChef is Ownable {
         }
         uint256 multiplier = getMultiplier(pool.lastRewardBlock, block.number);
         uint256 cakeReward = multiplier.mul(cakePerBlock).mul(pool.allocPoint).div(totalAllocPoint);
-        cake.mint(devaddr, cakeReward.div(10));
-        cake.mint(address(syrup), cakeReward);
+        Kaco.mint(address(syrup), cakeReward);
         pool.accCakePerShare = pool.accCakePerShare.add(cakeReward.mul(1e12).div(lpSupply));
         pool.lastRewardBlock = block.number;
     }
 
-    // Deposit LP tokens to MasterChef for CAKE allocation.
+    // Deposit LP tokens to MasterChef for Kaco allocation.
     function deposit(uint256 _pid, uint256 _amount) public {
 
-        require (_pid != 0, 'deposit CAKE by staking');
+        require (_pid != 0, 'deposit Kaco by staking');
 
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
@@ -250,7 +237,7 @@ contract MasterChef is Ownable {
     // Withdraw LP tokens from MasterChef.
     function withdraw(uint256 _pid, uint256 _amount) public {
 
-        require (_pid != 0, 'withdraw CAKE by unstaking');
+        require (_pid != 0, 'withdraw Kaco by unstaking');
         PoolInfo storage pool = poolInfo[_pid];
         UserInfo storage user = userInfo[_pid][msg.sender];
         require(user.amount >= _amount, "withdraw: not good");
@@ -268,7 +255,7 @@ contract MasterChef is Ownable {
         emit Withdraw(msg.sender, _pid, _amount);
     }
 
-    // Stake CAKE tokens to MasterChef
+    // Stake Kaco tokens to MasterChef
     function enterStaking(uint256 _amount) public {
         PoolInfo storage pool = poolInfo[0];
         UserInfo storage user = userInfo[0][msg.sender];
@@ -289,7 +276,7 @@ contract MasterChef is Ownable {
         emit Deposit(msg.sender, 0, _amount);
     }
 
-    // Withdraw CAKE tokens from STAKING.
+    // Withdraw Kaco tokens from STAKING.
     function leaveStaking(uint256 _amount) public {
         PoolInfo storage pool = poolInfo[0];
         UserInfo storage user = userInfo[0][msg.sender];
@@ -319,14 +306,8 @@ contract MasterChef is Ownable {
         user.rewardDebt = 0;
     }
 
-    // Safe cake transfer function, just in case if rounding error causes pool to not have enough CAKEs.
+    // Safe Kaco transfer function, just in case if rounding error causes pool to not have enough Kacos.
     function safeCakeTransfer(address _to, uint256 _amount) internal {
         syrup.safeCakeTransfer(_to, _amount);
-    }
-
-    // Update dev address by the previous dev.
-    function dev(address _devaddr) public {
-        require(msg.sender == devaddr, "dev: wut?");
-        devaddr = _devaddr;
     }
 }

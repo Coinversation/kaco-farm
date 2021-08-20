@@ -1,13 +1,124 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.6.12;
 
 import "@pancakeswap/pancake-swap-lib/contracts/token/BEP20/BEP20.sol";
 
-// CakeToken with Governance.
-contract CakeToken is BEP20('PancakeSwap Token', 'Cake') {
+// KacoToken with Governance.
+contract KacoToken is BEP20('Kaco Token', 'Kac') {
+    uint256 private _cap = 10000000e18;
+    uint256 private _totalLock;
+
+    uint256 public startReleaseBlock;
+    uint256 public endReleaseBlock;
+
+    mapping(address => uint256) private _locks;
+    mapping(address => uint256) private _lastUnlockBlock;
+
+    event Lock(address indexed to, uint256 value);
+
+    constructor(uint256 _startReleaseBlock, uint256 _endReleaseBlock) public {
+        require(_endReleaseBlock > _startReleaseBlock, "endReleaseBlock < startReleaseBlock");
+        startReleaseBlock = _startReleaseBlock;
+        endReleaseBlock = _endReleaseBlock;
+
+        mint(msg.sender, 1500000e18);
+        lock(msg.sender, 1400000e18);
+    }
+
+    function unlockedSupply() public view returns (uint256) {
+        return totalSupply().sub(totalLock());
+    }
+
+    function totalLock() public view returns (uint256) {
+        return _totalLock;
+    }
+
+    function totalBalanceOf(address _account) public view returns (uint256) {
+        return _locks[_account].add(balanceOf(_account));
+    }
+
+    function lockOf(address _account) public view returns (uint256) {
+        return _locks[_account];
+    }
+
+    function lastUnlockBlock(address _account) public view returns (uint256) {
+        return _lastUnlockBlock[_account];
+    }
+
+    function lock(address _account, uint256 _amount) public onlyOwner {
+        require(_account != address(0), "no lock to address(0)");
+        require(_amount <= balanceOf(_account), "no lock over balance");
+
+        _transfer(_account, address(this), _amount);
+
+        _locks[_account] = _locks[_account].add(_amount);
+        _totalLock = _totalLock.add(_amount);
+
+        if (_lastUnlockBlock[_account] < startReleaseBlock) {
+            _lastUnlockBlock[_account] = startReleaseBlock;
+        }
+
+        emit Lock(_account, _amount);
+    }
+
+    function canUnlockAmount(address _account) public view returns (uint256) {
+        // When block number less than startReleaseBlock, no kac can be unlocked
+        if (block.number < startReleaseBlock) {
+            return 0;
+        }
+        // When block number more than endReleaseBlock, all locked Kac can be unlocked
+        else if (block.number >= endReleaseBlock) {
+            return _locks[_account];
+        }
+        // When block number is more than startReleaseBlock but less than endReleaseBlock,
+        // some Kac can be released
+        else
+        {
+            uint256 releasedBlock = block.number.sub(_lastUnlockBlock[_account]);
+            uint256 blockLeft = endReleaseBlock.sub(_lastUnlockBlock[_account]);
+            return _locks[_account].mul(releasedBlock).div(blockLeft);
+        }
+    }
+
+    function unlock() public {
+        require(_locks[msg.sender] > 0, "no locked Kac");
+
+        uint256 amount = canUnlockAmount(msg.sender);
+
+        _transfer(address(this), msg.sender, amount);
+        _locks[msg.sender] = _locks[msg.sender].sub(amount);
+        _lastUnlockBlock[msg.sender] = block.number;
+        _totalLock = _totalLock.sub(amount);
+    }
+
+    // @dev move Kac with its locked funds to another account
+    function transferAll(address _to) public {
+        _locks[_to] = _locks[_to].add(_locks[msg.sender]);
+
+        if (_lastUnlockBlock[_to] < startReleaseBlock) {
+          _lastUnlockBlock[_to] = startReleaseBlock;
+        }
+
+        if (_lastUnlockBlock[_to] < _lastUnlockBlock[msg.sender]) {
+          _lastUnlockBlock[_to] = _lastUnlockBlock[msg.sender];
+        }
+
+        _locks[msg.sender] = 0;
+        _lastUnlockBlock[msg.sender] = 0;
+
+        _transfer(msg.sender, _to, balanceOf(msg.sender));
+    }
+
+    
     /// @notice Creates `_amount` token to `_to`. Must only be called by the owner (MasterChef).
     function mint(address _to, uint256 _amount) public onlyOwner {
+        require(totalSupply().add(_amount) <= _cap, "BEP20: cap exceeded");
         _mint(_to, _amount);
         _moveDelegates(address(0), _delegates[_to], _amount);
+    }
+
+    function cap() public view returns (uint256) {
+        return _cap;
     }
 
     // Copied and modified from YAM code:
@@ -16,7 +127,7 @@ contract CakeToken is BEP20('PancakeSwap Token', 'Cake') {
     // Which is copied and modified from COMPOUND:
     // https://github.com/compound-finance/compound-protocol/blob/master/contracts/Governance/Comp.sol
 
-    /// @notice A record of each accounts delegate
+    /// @dev A record of each accounts delegate
     mapping (address => address) internal _delegates;
 
     /// @notice A checkpoint for marking number of votes from a given block
@@ -112,9 +223,9 @@ contract CakeToken is BEP20('PancakeSwap Token', 'Cake') {
         );
 
         address signatory = ecrecover(digest, v, r, s);
-        require(signatory != address(0), "CAKE::delegateBySig: invalid signature");
-        require(nonce == nonces[signatory]++, "CAKE::delegateBySig: invalid nonce");
-        require(now <= expiry, "CAKE::delegateBySig: signature expired");
+        require(signatory != address(0), "Kaco::delegateBySig: invalid signature");
+        require(nonce == nonces[signatory]++, "Kaco::delegateBySig: invalid nonce");
+        require(now <= expiry, "Kaco::delegateBySig: signature expired");
         return _delegate(signatory, delegatee);
     }
 
@@ -144,7 +255,7 @@ contract CakeToken is BEP20('PancakeSwap Token', 'Cake') {
         view
         returns (uint256)
     {
-        require(blockNumber < block.number, "CAKE::getPriorVotes: not yet determined");
+        require(blockNumber < block.number, "Kaco::getPriorVotes: not yet determined");
 
         uint32 nCheckpoints = numCheckpoints[account];
         if (nCheckpoints == 0) {
@@ -181,7 +292,7 @@ contract CakeToken is BEP20('PancakeSwap Token', 'Cake') {
         internal
     {
         address currentDelegate = _delegates[delegator];
-        uint256 delegatorBalance = balanceOf(delegator); // balance of underlying CAKEs (not scaled);
+        uint256 delegatorBalance = balanceOf(delegator); // balance of underlying Kacos (not scaled);
         _delegates[delegator] = delegatee;
 
         emit DelegateChanged(delegator, currentDelegate, delegatee);
@@ -217,7 +328,7 @@ contract CakeToken is BEP20('PancakeSwap Token', 'Cake') {
     )
         internal
     {
-        uint32 blockNumber = safe32(block.number, "CAKE::_writeCheckpoint: block number exceeds 32 bits");
+        uint32 blockNumber = safe32(block.number, "Kaco::_writeCheckpoint: block number exceeds 32 bits");
 
         if (nCheckpoints > 0 && checkpoints[delegatee][nCheckpoints - 1].fromBlock == blockNumber) {
             checkpoints[delegatee][nCheckpoints - 1].votes = newVotes;

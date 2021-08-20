@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: MIT
 pragma solidity 0.6.12;
 
 import '@pancakeswap/pancake-swap-lib/contracts/token/BEP20/IBEP20.sol';
@@ -13,16 +14,16 @@ contract LotteryRewardPool is Ownable {
     address public adminAddress;
     address public receiver;
     IBEP20 public lptoken;
-    IBEP20 public cake;
+    IBEP20 public Kaco;
 
     constructor(
         MasterChef _chef,
-        IBEP20 _cake,
+        IBEP20 _Kaco,
         address _admin,
         address _receiver
     ) public {
         chef = _chef;
-        cake = _cake;
+        Kaco = _Kaco;
         adminAddress = _admin;
         receiver = _receiver;
     }
@@ -44,8 +45,8 @@ contract LotteryRewardPool is Ownable {
 
     function  harvest(uint256 _pid) external onlyAdmin {
         chef.deposit(_pid, 0);
-        uint256 balance = cake.balanceOf(address(this));
-        cake.safeTransfer(receiver, balance);
+        uint256 balance = Kaco.balanceOf(address(this));
+        Kaco.safeTransfer(receiver, balance);
         emit Harvest(msg.sender, _pid);
     }
 
@@ -59,7 +60,7 @@ contract LotteryRewardPool is Ownable {
 
     // EMERGENCY ONLY.
     function emergencyWithdraw(IBEP20 _token, uint256 _amount) external onlyOwner {
-        cake.safeTransfer(address(msg.sender), _amount);
+        Kaco.safeTransfer(address(msg.sender), _amount);
         emit EmergencyWithdraw(msg.sender, _amount);
     }
 
